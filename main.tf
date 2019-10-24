@@ -1,8 +1,12 @@
 provider "dockerbuild" {
-    // TODO - git dir here?
 }
 
-data "dockerbuild_git_tree" "sample_service" {
-    git_root = path.module
-    source_dir = "sample_service"
+data "dockerbuild_source_tree" "sample_service" {
+    source_dirs = ["sample_service"]
+}
+
+resource "dockerbuild_build" "sample_service" {
+    source_dir = "${path.module}/sample_service"
+    source_hash = data.dockerbuild_source_tree.sample_service.hash
+    image_name = "test"
 }
