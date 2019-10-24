@@ -2,12 +2,15 @@ package dockerbuild
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"regexp"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/pkg/errors"
 )
@@ -29,9 +32,9 @@ func Resource() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
-			"image_name": &schema.Schema{
+			"image_id": &schema.Schema{
 				Type:     schema.TypeString,
-				Required: true,
+				Computed: true,
 			},
 		},
 	}
@@ -63,19 +66,53 @@ func resourceCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	ibResponse, err := dc.ImageBuild(context.Background(), rc, types.ImageBuildOptions{
-		Tags: []string{"whatever:oldest"},
+		Tags: []string{imageID},
 	})
 
 	if err != nil {
 		return errors.Wrap(err, "while creating tar uploader")
 	}
 
-	out, err := ioutil.ReadAll(ibResponse.Body)
+	defer ibResponse.Body.Close()
+	dec := json.NewDecoder(ibResponse.Body)
+
+	builtRegexp, err := regexp.Compile("^Successfully built ([0-9a-z]+)+\n$")
+
 	if err != nil {
-		return errors.Wrap(err, "while reading build response")
+		return errors.Wrap(err, "while compiling regexp")
 	}
 
-	ioutil.WriteFile("/tmp/output", out, 0700)
+	lastID := ""
+
+	for {
+		msg := jsonmessage.JSONMessage{}
+		err = dec.Decode(&msg)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return errors.Wrap(err, "while reading build output")
+		}
+
+		matches := builtRegexp.FindStringSubmatch(msg.Stream)
+
+		if len(matches) > 1 {
+			lastID = matches[1]
+		}
+
+		if msg.Error != nil {
+			return errors.Errorf("error code %s building image: %s", msg.Error.Code, msg.Error.Message)
+		}
+	}
+
+	// TODO use TEE
+	// out, err := ioutil.ReadAll(ibResponse.Body)
+	// if err != nil {
+	// 	return errors.Wrap(err, "while reading build response")
+	// }
+
+	// ioutil.WriteFile("/tmp/output", out, 0700)
 
 	d.SetId(imageID)
 
