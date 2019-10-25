@@ -7,6 +7,8 @@ import (
 	"io"
 	"regexp"
 
+	"strings"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
@@ -54,6 +56,7 @@ func resourceCreate(d *schema.ResourceData, m interface{}) error {
 	_, _, err = dc.ImageInspectWithRaw(context.Background(), imageID)
 
 	if !client.IsErrNotFound(err) {
+		d.SetId(sourceHash)
 		return resourceRead(d, m)
 	}
 
@@ -129,5 +132,27 @@ func resourceUpdate(d *schema.ResourceData, m interface{}) error {
 }
 
 func resourceDelete(d *schema.ResourceData, m interface{}) error {
+
+	dc, err := client.NewEnvClient()
+	if err != nil {
+		return errors.Wrap(err, "while creating docker client")
+	}
+
+	sourceHash := d.Get("source_hash").(string)
+
+	imageID := fmt.Sprintf("sourcebuild:%s", sourceHash)
+
+	_, err = dc.ImageRemove(context.Background(), imageID, types.ImageRemoveOptions{
+		PruneChildren: true,
+	})
+
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		return nil
+	}
+
+	if err != nil {
+		return errors.Wrap(err, "while deleting image")
+	}
+
 	return nil
 }
