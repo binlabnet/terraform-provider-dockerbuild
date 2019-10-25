@@ -46,11 +46,10 @@ func resourceCreate(d *schema.ResourceData, m interface{}) error {
 		return errors.Wrap(err, "while creating docker client")
 	}
 
-	imageName := d.Get("image_name").(string)
 	sourceHash := d.Get("source_hash").(string)
 	sourceDir := d.Get("source_dir").(string)
 
-	imageID := fmt.Sprintf("%s:%s", imageName, sourceHash)
+	imageID := fmt.Sprintf("sourcebuild:%s", sourceHash)
 
 	_, _, err = dc.ImageInspectWithRaw(context.Background(), imageID)
 
@@ -102,40 +101,26 @@ func resourceCreate(d *schema.ResourceData, m interface{}) error {
 		}
 
 		if msg.Error != nil {
-			return errors.Errorf("error code %s building image: %s", msg.Error.Code, msg.Error.Message)
+			return errors.Errorf("error code %d building image: %s", msg.Error.Code, msg.Error.Message)
 		}
 	}
 
-	// TODO use TEE
-	// out, err := ioutil.ReadAll(ibResponse.Body)
-	// if err != nil {
-	// 	return errors.Wrap(err, "while reading build response")
-	// }
+	ii, _, err := dc.ImageInspectWithRaw(context.Background(), lastID)
+	if err != nil {
+		return errors.Wrapf(err, "while getting image with id %s", lastID)
+	}
 
-	// ioutil.WriteFile("/tmp/output", out, 0700)
+	err = d.Set("image_id", ii.ID)
+	if err != nil {
+		return errors.Wrap(err, "while setting image_id")
+	}
 
-	d.SetId(imageID)
+	d.SetId(sourceHash)
 
 	return resourceRead(d, m)
 }
 
 func resourceRead(d *schema.ResourceData, m interface{}) error {
-	dc, err := client.NewEnvClient()
-	if err != nil {
-		return errors.Wrap(err, "while creating docker client")
-	}
-
-	imageName := d.Get("image_name").(string)
-	sourceHash := d.Get("source_hash").(string)
-
-	imageID := fmt.Sprintf("%s:%s", imageName, sourceHash)
-
-	_, _, err = dc.ImageInspectWithRaw(context.Background(), imageID)
-
-	if !client.IsErrNotFound(err) {
-		d.SetId("")
-	}
-
 	return nil
 }
 
